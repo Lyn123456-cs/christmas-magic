@@ -2,39 +2,14 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>圣诞树魔法照片 - 提亮增强版</title>
+    <title>圣诞树魔法照片 - 增强清晰版</title>
     <style>
-        body { 
-            margin: 0; 
-            overflow: hidden; 
-            /* 背景改为深绿色渐变，提升层次感 */
-            background: radial-gradient(circle at center, #051a05 0%, #000 100%); 
-            font-family: 'Microsoft YaHei', sans-serif; 
-        }
+        body { margin: 0; overflow: hidden; background: radial-gradient(circle at center, #051a05 0%, #000 100%); font-family: 'Microsoft YaHei', sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; }
-        #ui-layer {
-            position: absolute; top: 30px; left: 30px; color: #ffd700;
-            pointer-events: none; z-index: 10; text-shadow: 0 0 10px rgba(212, 175, 55, 0.8);
-        }
-        #video-input { 
-            position: absolute; bottom: 20px; right: 20px; width: 150px; 
-            border: 2px solid #d4af37; border-radius: 12px; transform: scaleX(-1);
-            opacity: 0.5; z-index: 5; background: #000;
-        }
-        #loading {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle, #1a331a 0%, #000 100%);
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            color: #d4af37; z-index: 100; transition: opacity 0.8s;
-        }
-        .merry-text {
-            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0);
-            color: #fff; font-size: 60px; font-weight: bold; text-align: center;
-            pointer-events: none; 
-            text-shadow: 0 0 10px #ff0000, 0 0 30px #ffd700, 0 0 50px #ffd700;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            z-index: 20; white-space: nowrap; opacity: 0;
-        }
+        #ui-layer { position: absolute; top: 30px; left: 30px; color: #ffd700; pointer-events: none; z-index: 10; text-shadow: 0 0 10px rgba(212, 175, 55, 0.8); }
+        #video-input { position: absolute; bottom: 20px; right: 20px; width: 150px; border: 2px solid #d4af37; border-radius: 12px; transform: scaleX(-1); opacity: 0.5; z-index: 5; background: #000; }
+        #loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, #1a331a 0%, #000 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #d4af37; z-index: 100; transition: opacity 0.8s; }
+        .merry-text { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0); color: #fff; font-size: 60px; font-weight: bold; text-align: center; pointer-events: none; text-shadow: 0 0 10px #ff0000, 0 0 30px #ffd700, 0 0 50px #ffd700; transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 20; white-space: nowrap; opacity: 0; }
     </style>
 </head>
 <body>
@@ -46,8 +21,8 @@
 
 <div id="ui-layer">
     <h1 style="margin:0; font-size: 2.5em;">CHRISTMAS MAGIC</h1>
-    <p>🖐️ 张开手掌：召唤圣诞树与照片墙</p>
-    <p>👌 捏合指尖：抓取并放大照片</p>
+    <p>🖐️ 张开手掌：初始化魔法</p>
+    <p>👌 捏合指尖：抓取照片</p>
 </div>
 
 <div id="merry-text" class="merry-text">可莹 圣诞快乐!<br>Merry Christmas!</div>
@@ -61,22 +36,20 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-/** * 配置区：在此处添加你的照片路径
- * 可以是相对路径如 'img/1.jpg' 或完整的网络 URL
- */
 const photoList = [
     'images/photo_v91mzp281ll.jpg',
     'images/photo_x92nk29sl01.jpg',
     'images/photo_y93mzp30m35.jpg',
     'images/20251218142429_34_124.jpg',
     'images/20251218142209_29_124.jpg',
-    'imges/20251218142005_24_124.jpg',
-    'imges/20251218141931_22_124.jpg'
+    'images/20251218142005_24_124.jpg',
+    'images/20251218141931_22_124.jpg'
 ];
 
 let scene, camera, renderer, instancedMesh, photosGroup;
 let currentState = 'closed';
 let grabbedObject = null;
+let hasShownBlessing = false; // 记录祝福语是否显示过
 const PARTICLE_COUNT = 1000;
 const dummy = new THREE.Object3D();
 const merryDom = document.getElementById('merry-text');
@@ -88,27 +61,18 @@ function initThree() {
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    // 开启色调映射，让画面更亮更柔和
+    // 提升清晰度：使用物理像素比
+    renderer.setPixelRatio(window.devicePixelRatio);
     renderer.toneMapping = THREE.ReinhardToneMapping;
     renderer.toneMappingExposure = 1.2;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // --- 光照增强 ---
-    const ambient = new THREE.AmbientLight(0xffffff, 1.5); // 提升基础环境光
-    scene.add(ambient);
-
-    const topLight = new THREE.DirectionalLight(0xffffff, 1.2); // 顶部高光
+    scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+    const topLight = new THREE.DirectionalLight(0xffffff, 1.2);
     topLight.position.set(5, 15, 10);
     scene.add(topLight);
 
-    const pointLight = new THREE.PointLight(0xffd700, 1, 50); // 中心暖光
-    pointLight.position.set(0, 5, 5);
-    scene.add(pointLight);
-
-    // 圣诞树粒子系统
     const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-    // 改用 MeshPhongMaterial 提升反光效果
     const material = new THREE.MeshPhongMaterial({ shininess: 80, specular: 0xffffff });
     instancedMesh = new THREE.InstancedMesh(geometry, material, PARTICLE_COUNT);
 
@@ -120,65 +84,55 @@ function initThree() {
         const treePos = new THREE.Vector3(Math.cos(angle)*radius, ratio*15 - 5, Math.sin(angle)*radius);
         const randPos = new THREE.Vector3((Math.random()-0.5)*50, (Math.random()-0.5)*35, (Math.random()-0.5)*50);
         particles.push({ current: treePos.clone(), tree: treePos, rand: randPos });
-        
-        // 提亮颜色
-        const color = new THREE.Color().setHex([0x2e8b57, 0xffd700, 0xff4500][i % 3]);
-        instancedMesh.setColorAt(i, color);
+        instancedMesh.setColorAt(i, new THREE.Color().setHex([0x2e8b57, 0xffd700, 0xff4500][i % 3]));
     }
     instancedMesh.userData.particles = particles;
     scene.add(instancedMesh);
 
     photosGroup = new THREE.Group();
     scene.add(photosGroup);
-
-    // 执行后台加载照片
     loadPhotos();
 }
 
 function loadPhotos() {
     const loader = new THREE.TextureLoader();
-    // 定义相框材质
-    const frameMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 50 });
+    const frameMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 100 });
 
     photoList.forEach((url, index) => {
         loader.load(url, (tex) => {
-            const group = new THREE.Group();
+            // 提升纹理清晰度关键设置
+            tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.magFilter = THREE.LinearFilter;
 
-            // 照片主体
+            const group = new THREE.Group();
+            
+            // 照片
             const photoMesh = new THREE.Mesh(
                 new THREE.PlaneGeometry(4, 5.5),
                 new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0 })
             );
             
-            // 白色底片相框 (比照片稍大)
-            const frameMesh = new THREE.Mesh(
-                new THREE.PlaneGeometry(4.4, 5.9),
-                frameMat.clone()
-            );
-            frameMesh.position.z = -0.02; // 放在照片背面
+            // 相框
+            const frameMesh = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 5.9), frameMat.clone());
+            frameMesh.position.z = -0.01;
+            frameMesh.material.transparent = true;
+            frameMesh.material.opacity = 0;
 
             group.add(photoMesh);
             group.add(frameMesh);
 
-            // 间距优化：按圆周分布，避免堆叠在一起
+            // 间距优化：大圆环布局
             const angle = (index / photoList.length) * Math.PI * 2;
-            const radius = 25; 
-            const pos = new THREE.Vector3(
-                Math.cos(angle) * radius,
-                Math.random() * 10,
-                Math.sin(angle) * 10 - 5
-            );
-
+            const radius = 22;
+            const pos = new THREE.Vector3(Math.cos(angle)*radius, Math.random()*12 - 2, Math.sin(angle)*8 - 5);
             group.position.copy(pos);
-            group.rotation.y = -angle + Math.PI / 2;
+            group.rotation.y = -angle + Math.PI/2;
+
             group.userData.origPos = pos.clone();
             group.userData.origRotY = group.rotation.y;
-            
-            // 将材质引用给 group 方便 updateVisuals 控制透明度
-            group.material = photoMesh.material;
-            group.frameMaterial = frameMesh.material;
-            group.frameMaterial.transparent = true;
-            group.frameMaterial.opacity = 0;
+            group.photoMat = photoMesh.material;
+            group.frameMat = frameMesh.material;
 
             photosGroup.add(group);
         });
@@ -188,54 +142,44 @@ function loadPhotos() {
 function updateVisuals() {
     const isClosed = currentState === 'closed';
     
-    // 核心修复：只有在“开启手掌”且“没有抓取照片”时才显示祝福语
-    if (!isClosed && !grabbedObject) {
+    // 祝福语显示逻辑：仅当第一次打开且未被抓取时显示
+    if (!isClosed && !hasShownBlessing && !grabbedObject) {
         merryDom.style.transform = "translate(-50%, -50%) scale(1)";
         merryDom.style.opacity = "1";
     } else {
+        // 一旦需要隐藏（关闭或抓取），则标记为已显示过，以后不再自动出现
+        if (merryDom.style.opacity === "1") {
+            hasShownBlessing = true;
+        }
         merryDom.style.transform = "translate(-50%, -50%) scale(0)";
         merryDom.style.opacity = "0";
     }
 
-    // 粒子过渡逻辑保持不变
     instancedMesh.userData.particles.forEach((p) => {
         new TWEEN.Tween(p.current).to(isClosed ? p.tree : p.rand, 1000).easing(TWEEN.Easing.Quadratic.Out).start();
     });
 
-    // 照片及相框显隐
-    photosGroup.children.forEach(photo => {
-        const targetOpacity = isClosed ? 0 : (photo === grabbedObject ? 1 : 0.7);
-        new TWEEN.Tween(photo.material).to({ opacity: targetOpacity }, 400).start();
+    photosGroup.children.forEach(group => {
+        const targetOpacity = isClosed ? 0 : (group === grabbedObject ? 1 : 0.7);
+        new TWEEN.Tween(group.photoMat).to({ opacity: targetOpacity }, 400).start();
+        new TWEEN.Tween(group.frameMat).to({ opacity: targetOpacity }, 400).start();
     });
 }
 
 function focusPhoto(photo) {
-    // 隐藏文字的逻辑已在 updateVisuals 中触发
     new TWEEN.Tween(photo.position).to({ x: 0, y: 5, z: 12 }, 500).easing(TWEEN.Easing.Cubic.Out).start();
     new TWEEN.Tween(photo.rotation).to({ x: 0, y: Math.PI * 2, z: 0 }, 500).start();
 }
 
 function releasePhoto(photo) {
-    new TWEEN.Tween(photo.position).to({ 
-        x: photo.userData.origPos.x, 
-        y: photo.userData.origPos.y, 
-        z: photo.userData.origPos.z 
-    }, 400).start();
+    new TWEEN.Tween(photo.position).to({ x: photo.userData.origPos.x, y: photo.userData.origPos.y, z: photo.userData.origPos.z }, 400).start();
     new TWEEN.Tween(photo.rotation).to({ x: 0, y: photo.userData.origRotY, z: 0 }, 400).start();
 }
 
 async function initMediaPipe() {
     const video = document.getElementById('video-input');
-    const hands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
-
-    hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.6
-    });
+    const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
 
     hands.onResults((results) => {
         document.getElementById('loading').style.opacity = '0';
@@ -243,8 +187,8 @@ async function initMediaPipe() {
 
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
             const lm = results.multiHandLandmarks[0];
-            
             const openDist = Math.hypot(lm[8].x - lm[0].x, lm[8].y - lm[0].y);
+            
             let newState = currentState;
             if (openDist < 0.25) newState = 'closed';
             else if (openDist > 0.4) newState = 'open';
@@ -260,8 +204,7 @@ async function initMediaPipe() {
 
             if (pinchDist < 0.07 && currentState === 'open') {
                 if (!grabbedObject) {
-                    let closest = null;
-                    let minDist = 15;
+                    let closest = null, minDist = 15;
                     photosGroup.children.forEach(photo => {
                         const d = photo.position.distanceTo(new THREE.Vector3(handX, handY, photo.position.z));
                         if (d < minDist) { minDist = d; closest = photo; }
@@ -269,26 +212,20 @@ async function initMediaPipe() {
                     if (closest) { 
                         grabbedObject = closest; 
                         focusPhoto(grabbedObject); 
-                        updateVisuals(); // 关键：抓取瞬间立即隐藏文字
+                        updateVisuals(); // 抓取时触发隐藏
                     }
                 }
-            } else if (pinchDist > 0.12) {
-                if (grabbedObject) { 
-                    releasePhoto(grabbedObject); 
-                    grabbedObject = null; 
-                    updateVisuals(); // 关键：释放瞬间立即恢复文字显示
-                }
-}
-
+            } else if (pinchDist > 0.12 && grabbedObject) {
+                releasePhoto(grabbedObject); 
+                grabbedObject = null; 
+                updateVisuals(); 
+            }
             camera.position.x += ((lm[0].x - 0.5) * -15 - camera.position.x) * 0.05;
             camera.lookAt(0, 5, 0);
         }
     });
 
-    const cameraUtils = new Camera(video, {
-        onFrame: async () => { await hands.send({ image: video }); },
-        width: 640, height: 480
-    });
+    const cameraUtils = new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: 640, height: 480 });
     cameraUtils.start();
 }
 
@@ -306,11 +243,8 @@ function animate(time) {
     renderer.render(scene, camera);
 }
 
-// 启动
 initThree();
-initMediaPipe().catch(() => {
-    document.querySelector('#loading p').innerText = "请确保摄像头已连接并授权";
-});
+initMediaPipe().catch(() => { document.querySelector('#loading p').innerText = "请检查摄像头权限"; });
 animate();
 
 window.onresize = () => {
