@@ -8,7 +8,7 @@
         #canvas-container { width: 100vw; height: 100vh; }
         #ui-layer { position: absolute; top: 30px; left: 30px; color: #ffd700; pointer-events: none; z-index: 10; text-shadow: 0 0 10px rgba(212, 175, 55, 0.8); }
         #video-input { position: absolute; bottom: 20px; right: 20px; width: 150px; border: 2px solid #d4af37; border-radius: 12px; transform: scaleX(-1); opacity: 0.5; z-index: 5; background: #000; }
-        #loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, #1a331a 0%, #000 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #d4af37; z-index: 100; transition: opacity 0.8s; }
+        #loading { position: fixed; inset: 0; background: radial-gradient(circle, #1a331a 0%, #000 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #d4af37; z-index: 100; transition: opacity 0.8s; }
         .merry-text { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0); color: #fff; font-size: 60px; font-weight: bold; text-align: center; pointer-events: none; text-shadow: 0 0 10px #ff0000, 0 0 30px #ffd700, 0 0 50px #ffd700; transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 20; white-space: nowrap; opacity: 0; }
     </style>
 </head>
@@ -40,16 +40,20 @@ const photoList = [
     'images/photo_v91mzp281ll.jpg',
     'images/photo_x92nk29sl01.jpg',
     'images/photo_y93mzp30m35.jpg',
-    'images/20251218142429_34_124.jpg',
-    'images/20251218142209_29_124.jpg',
+    'images/20251218141918_22_124.jpg',
     'images/20251218142005_24_124.jpg',
-    'images/20251218141931_22_124.jpg'
+    'images/20251218142209_29_124.jpg',
+    'images/20251218142336_30_124.jpg',
+    'images/20251218142340_31_124.jpg',
+    'images/20251218142414_33_124.jpg',
+    'images/20251218142429_34_124.jpg'
 ];
 
 let scene, camera, renderer, instancedMesh, photosGroup;
 let currentState = 'closed';
 let grabbedObject = null;
-let hasShownBlessing = false; // 记录祝福语是否显示过
+let hasShownBlessing = false;
+let blessingDismissed = false;
 const PARTICLE_COUNT = 1000;
 const dummy = new THREE.Object3D();
 const merryDom = document.getElementById('merry-text');
@@ -67,13 +71,23 @@ function initThree() {
     renderer.toneMappingExposure = 1.2;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-    const topLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    topLight.position.set(5, 15, 10);
-    scene.add(topLight);
+    // 🎬 电影感光照
+    scene.add(new THREE.AmbientLight(0x404040, 1.2));
+    const moonLight = new THREE.DirectionalLight(0xb0c4de, 1.5);
+    moonLight.position.set(10, 20, 15);
+    scene.add(moonLight);
+    const warmLight = new THREE.PointLight(0xffa500, 1.2, 60);
+    warmLight.position.set(0, -2, 10);
+    scene.add(warmLight);
 
-    const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-    const material = new THREE.MeshPhongMaterial({ shininess: 80, specular: 0xffffff });
+    // 🎄 电影感圣诞树 - 球形粒子
+    const geometry = new THREE.SphereGeometry(0.12, 16, 16);
+    const material = new THREE.MeshStandardMaterial({ 
+        metalness: 0.6,
+        roughness: 0.3,
+        emissive: 0xffd700,
+        emissiveIntensity: 0.4
+    });
     instancedMesh = new THREE.InstancedMesh(geometry, material, PARTICLE_COUNT);
 
     const particles = [];
@@ -84,7 +98,8 @@ function initThree() {
         const treePos = new THREE.Vector3(Math.cos(angle)*radius, ratio*15 - 5, Math.sin(angle)*radius);
         const randPos = new THREE.Vector3((Math.random()-0.5)*50, (Math.random()-0.5)*35, (Math.random()-0.5)*50);
         particles.push({ current: treePos.clone(), tree: treePos, rand: randPos });
-        instancedMesh.setColorAt(i, new THREE.Color().setHex([0x2e8b57, 0xffd700, 0xff4500][i % 3]));
+        const colors = [new THREE.Color(0x2d5016), new THREE.Color(0xd4af37), new THREE.Color(0xff6b35)];
+        instancedMesh.setColorAt(i, colors[i % 3]);
     }
     instancedMesh.userData.particles = particles;
     scene.add(instancedMesh);
@@ -96,31 +111,46 @@ function initThree() {
 
 function loadPhotos() {
     const loader = new THREE.TextureLoader();
-    const frameMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 100 });
 
     photoList.forEach((url, index) => {
         loader.load(url, (tex) => {
-            // 提升纹理清晰度关键设置
+            // 🔧 最大化照片清晰度
             tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
+            tex.generateMipmaps = false;
+            tex.colorSpace = THREE.SRGBColorSpace;
 
             const group = new THREE.Group();
             
-            // 照片
+            // 📸 照片 - 增大尺寸提高清晰度
             const photoMesh = new THREE.Mesh(
-                new THREE.PlaneGeometry(4, 5.5),
-                new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0 })
+                new THREE.PlaneGeometry(5.5, 7.5),
+                new THREE.MeshBasicMaterial({ 
+                    map: tex, 
+                    side: THREE.DoubleSide, 
+                    transparent: true, 
+                    opacity: 0,
+                    depthWrite: true
+                })
             );
             
-            // 相框
-            const frameMesh = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 5.9), frameMat.clone());
-            frameMesh.position.z = -0.01;
-            frameMesh.material.transparent = true;
-            frameMesh.material.opacity = 0;
+            // 🖼️ 白色相框 - 匹配更大的照片
+            const outerFrame = new THREE.Mesh(
+                new THREE.BoxGeometry(6.2, 8.2, 0.15),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.4, transparent: true, opacity: 0 })
+            );
+            outerFrame.position.z = -0.1;
+            
+            const innerFrame = new THREE.Mesh(
+                new THREE.PlaneGeometry(5.8, 7.8),
+                new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.7, transparent: true, opacity: 0 })
+            );
+            innerFrame.position.z = -0.05;
 
             group.add(photoMesh);
-            group.add(frameMesh);
+            group.add(outerFrame);
+            group.add(innerFrame);
 
             // 间距优化：大圆环布局
             const angle = (index / photoList.length) * Math.PI * 2;
@@ -132,7 +162,7 @@ function loadPhotos() {
             group.userData.origPos = pos.clone();
             group.userData.origRotY = group.rotation.y;
             group.photoMat = photoMesh.material;
-            group.frameMat = frameMesh.material;
+            group.frameMats = [outerFrame.material, innerFrame.material];
 
             photosGroup.add(group);
         });
@@ -142,17 +172,17 @@ function loadPhotos() {
 function updateVisuals() {
     const isClosed = currentState === 'closed';
     
-    // 祝福语显示逻辑：仅当第一次打开且未被抓取时显示
-    if (!isClosed && !hasShownBlessing && !grabbedObject) {
+    // 🎯 祝福语逻辑：仅第一次张开手掌时显示，捏合照片或关闭后永久消失
+    if (!isClosed && !grabbedObject && !hasShownBlessing) {
+        // 第一次打开时显示祝福语
         merryDom.style.transform = "translate(-50%, -50%) scale(1)";
         merryDom.style.opacity = "1";
-    } else {
-        // 一旦需要隐藏（关闭或抓取），则标记为已显示过，以后不再自动出现
-        if (merryDom.style.opacity === "1") {
-            hasShownBlessing = true;
-        }
+        hasShownBlessing = true;
+    } else if ((isClosed || grabbedObject) && hasShownBlessing && !blessingDismissed) {
+        // 捏合照片或关闭手掌时永久隐藏
         merryDom.style.transform = "translate(-50%, -50%) scale(0)";
         merryDom.style.opacity = "0";
+        blessingDismissed = true;
     }
 
     instancedMesh.userData.particles.forEach((p) => {
@@ -160,9 +190,19 @@ function updateVisuals() {
     });
 
     photosGroup.children.forEach(group => {
-        const targetOpacity = isClosed ? 0 : (group === grabbedObject ? 1 : 0.7);
-        new TWEEN.Tween(group.photoMat).to({ opacity: targetOpacity }, 400).start();
-        new TWEEN.Tween(group.frameMat).to({ opacity: targetOpacity }, 400).start();
+        // 🔧 关闭状态时完全隐藏，避免背后颜色干扰
+        if (isClosed) {
+            group.visible = false;
+            group.photoMat.opacity = 0;
+            group.frameMats.forEach(mat => mat.opacity = 0);
+        } else {
+            group.visible = true;
+            const targetOpacity = (group === grabbedObject ? 1 : 0.85);
+            new TWEEN.Tween(group.photoMat).to({ opacity: targetOpacity }, 400).start();
+            group.frameMats.forEach(mat => {
+                new TWEEN.Tween(mat).to({ opacity: targetOpacity }, 400).start();
+            });
+        }
     });
 }
 
@@ -178,12 +218,24 @@ function releasePhoto(photo) {
 
 async function initMediaPipe() {
     const video = document.getElementById('video-input');
+    const loadingEl = document.getElementById('loading');
+    
+    // 5秒超时机制
+    const timeoutId = setTimeout(() => {
+        console.log('⏱️ 超时：自动进入场景');
+        if (loadingEl) {
+            loadingEl.style.opacity = '0';
+            setTimeout(() => { loadingEl.style.display = 'none'; }, 800);
+        }
+    }, 5000);
+    
     const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
     hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
 
     hands.onResults((results) => {
-        document.getElementById('loading').style.opacity = '0';
-        setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 800);
+        clearTimeout(timeoutId);
+        loadingEl.style.opacity = '0';
+        setTimeout(() => { loadingEl.style.display = 'none'; }, 800);
 
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
             const lm = results.multiHandLandmarks[0];
