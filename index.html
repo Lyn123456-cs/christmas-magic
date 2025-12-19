@@ -135,95 +135,77 @@ function initThree() {
     loadPhotos();
 }
 
-// 修改后的加载照片逻辑：添加相框
 function loadPhotos() {
     const loader = new THREE.TextureLoader();
-    const frameMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0xffffff, 
-        shininess: 100,
-        specular: 0x444444
-    });
+    // 定义相框材质
+    const frameMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 50 });
 
     photoList.forEach((url, index) => {
         loader.load(url, (tex) => {
-            // 创建一个组来装载照片和相框
-            const photoContainer = new THREE.Group();
+            const group = new THREE.Group();
 
-            // 1. 创建相框 (比照片略大)
-            const frameGeometry = new THREE.PlaneGeometry(4.4, 5.9);
-            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
-            
-            // 2. 创建照片
+            // 照片主体
             const photoMesh = new THREE.Mesh(
                 new THREE.PlaneGeometry(4, 5.5),
-                new THREE.MeshBasicMaterial({ 
-                    map: tex, 
-                    side: THREE.DoubleSide, 
-                    transparent: true, 
-                    opacity: 0,
-                    depthWrite: false 
-                })
+                new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0 })
             );
-            photoMesh.position.z = 0.05; // 让照片略微浮在相框上方
+            
+            // 白色底片相框 (比照片稍大)
+            const frameMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(4.4, 5.9),
+                frameMat.clone()
+            );
+            frameMesh.position.z = -0.02; // 放在照片背面
 
-            photoContainer.add(frame);
-            photoContainer.add(photoMesh);
+            group.add(photoMesh);
+            group.add(frameMesh);
 
-            // 3. 优化间距布局 (采用半圆环分布)
+            // 间距优化：按圆周分布，避免堆叠在一起
             const angle = (index / photoList.length) * Math.PI * 2;
-            const radius = 22 + Math.random() * 5; // 控制分布半径
+            const radius = 25; 
             const pos = new THREE.Vector3(
                 Math.cos(angle) * radius,
-                Math.random() * 15 - 2,
-                Math.sin(angle) * 5 - 10 // 控制深度分布
+                Math.random() * 10,
+                Math.sin(angle) * 10 - 5
             );
-            
-            const rotY = -angle + Math.PI; // 让照片大致朝向中心
-            
-            photoContainer.position.copy(pos);
-            photoContainer.rotation.y = rotY;
-            
-            // 存储原始数据用于复原
-            photoContainer.userData.origPos = pos.clone();
-            photoContainer.userData.origRotY = rotY;
-            photoContainer.userData.isPhotoGroup = true;
 
-            // 为了保持透明度控制逻辑，将材质引用挂载到 Group 上
-            photoContainer.material = photoMesh.material; 
-            photoContainer.frameMaterial = frame.material;
-            photoContainer.frameMaterial.transparent = true;
-            photoContainer.frameMaterial.opacity = 0;
+            group.position.copy(pos);
+            group.rotation.y = -angle + Math.PI / 2;
+            group.userData.origPos = pos.clone();
+            group.userData.origRotY = group.rotation.y;
+            
+            // 将材质引用给 group 方便 updateVisuals 控制透明度
+            group.material = photoMesh.material;
+            group.frameMaterial = frameMesh.material;
+            group.frameMaterial.transparent = true;
+            group.frameMaterial.opacity = 0;
 
-            photosGroup.add(photoContainer);
+            photosGroup.add(group);
         });
     });
 }
 
-// 修改后的视觉更新逻辑：查看照片时隐藏祝福语
 function updateVisuals() {
     const isClosed = currentState === 'closed';
     
-    // 核心修改：如果有抓取的对象，或者处于关闭状态，隐藏文字
-    if (isClosed || grabbedObject) {
-        merryDom.style.transform = "translate(-50%, -50%) scale(0)";
-        merryDom.style.opacity = "0";
-    } else {
+    // 核心修复：只有在“开启手掌”且“没有抓取照片”时才显示祝福语
+    if (!isClosed && !grabbedObject) {
         merryDom.style.transform = "translate(-50%, -50%) scale(1)";
         merryDom.style.opacity = "1";
+    } else {
+        merryDom.style.transform = "translate(-50%, -50%) scale(0)";
+        merryDom.style.opacity = "0";
     }
 
-    // 粒子过渡
+    // 粒子过渡逻辑保持不变
     instancedMesh.userData.particles.forEach((p) => {
         new TWEEN.Tween(p.current).to(isClosed ? p.tree : p.rand, 1000).easing(TWEEN.Easing.Quadratic.Out).start();
     });
 
     // 照片及相框显隐
-    photosGroup.children.forEach(photoGroup => {
-        const targetOpacity = isClosed ? 0 : (photoGroup === grabbedObject ? 1 : 0.7);
-        new TWEEN.Tween(photoGroup.material).to({ opacity: targetOpacity }, 400).start();
-        if(photoGroup.frameMaterial) {
-            new TWEEN.Tween(photoGroup.frameMaterial).to({ opacity: targetOpacity }, 400).start();
-        }
+    photosGroup.children.forEach(photo => {
+        const targetOpacity = isClosed ? 0 : (photo === grabbedObject ? 1 : 0.7);
+        new TWEEN.Tween(photo.material).to({ opacity: targetOpacity }, 400).start();
     });
 }
 
@@ -284,11 +266,19 @@ async function initMediaPipe() {
                         const d = photo.position.distanceTo(new THREE.Vector3(handX, handY, photo.position.z));
                         if (d < minDist) { minDist = d; closest = photo; }
                     });
-                    if (closest) { grabbedObject = closest; focusPhoto(grabbedObject); }
+                    if (closest) { 
+                        grabbedObject = closest; 
+                        focusPhoto(grabbedObject); 
+                        updateVisuals(); // 关键：抓取瞬间立即隐藏文字
+                    }
                 }
             } else if (pinchDist > 0.12) {
-                if (grabbedObject) { releasePhoto(grabbedObject); grabbedObject = null; updateVisuals(); }
-            }
+                if (grabbedObject) { 
+                    releasePhoto(grabbedObject); 
+                    grabbedObject = null; 
+                    updateVisuals(); // 关键：释放瞬间立即恢复文字显示
+                }
+}
 
             camera.position.x += ((lm[0].x - 0.5) * -15 - camera.position.x) * 0.05;
             camera.lookAt(0, 5, 0);
