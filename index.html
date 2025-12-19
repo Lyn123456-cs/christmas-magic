@@ -135,41 +135,75 @@ function initThree() {
     loadPhotos();
 }
 
-// 自动加载照片逻辑
+// 修改后的加载照片逻辑：添加相框
 function loadPhotos() {
     const loader = new THREE.TextureLoader();
-    photoList.forEach(url => {
+    const frameMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0xffffff, 
+        shininess: 100,
+        specular: 0x444444
+    });
+
+    photoList.forEach((url, index) => {
         loader.load(url, (tex) => {
-            const mesh = new THREE.Mesh(
+            // 创建一个组来装载照片和相框
+            const photoContainer = new THREE.Group();
+
+            // 1. 创建相框 (比照片略大)
+            const frameGeometry = new THREE.PlaneGeometry(4.4, 5.9);
+            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+            
+            // 2. 创建照片
+            const photoMesh = new THREE.Mesh(
                 new THREE.PlaneGeometry(4, 5.5),
                 new THREE.MeshBasicMaterial({ 
                     map: tex, 
                     side: THREE.DoubleSide, 
                     transparent: true, 
                     opacity: 0,
-                    depthWrite: false // 解决透明重叠白边
+                    depthWrite: false 
                 })
             );
-            
+            photoMesh.position.z = 0.05; // 让照片略微浮在相框上方
+
+            photoContainer.add(frame);
+            photoContainer.add(photoMesh);
+
+            // 3. 优化间距布局 (采用半圆环分布)
+            const angle = (index / photoList.length) * Math.PI * 2;
+            const radius = 22 + Math.random() * 5; // 控制分布半径
             const pos = new THREE.Vector3(
-                (Math.random()-0.5) * 45,
-                Math.random() * 18 - 4,
-                (Math.random()-0.5) * 20
+                Math.cos(angle) * radius,
+                Math.random() * 15 - 2,
+                Math.sin(angle) * 5 - 10 // 控制深度分布
             );
-            const rotY = (Math.random()-0.5) * 1.5; 
-            mesh.position.copy(pos);
-            mesh.rotation.y = rotY;
-            mesh.userData.origPos = pos.clone();
-            mesh.userData.origRotY = rotY;
-            photosGroup.add(mesh);
+            
+            const rotY = -angle + Math.PI; // 让照片大致朝向中心
+            
+            photoContainer.position.copy(pos);
+            photoContainer.rotation.y = rotY;
+            
+            // 存储原始数据用于复原
+            photoContainer.userData.origPos = pos.clone();
+            photoContainer.userData.origRotY = rotY;
+            photoContainer.userData.isPhotoGroup = true;
+
+            // 为了保持透明度控制逻辑，将材质引用挂载到 Group 上
+            photoContainer.material = photoMesh.material; 
+            photoContainer.frameMaterial = frame.material;
+            photoContainer.frameMaterial.transparent = true;
+            photoContainer.frameMaterial.opacity = 0;
+
+            photosGroup.add(photoContainer);
         });
     });
 }
 
+// 修改后的视觉更新逻辑：查看照片时隐藏祝福语
 function updateVisuals() {
     const isClosed = currentState === 'closed';
     
-    // 文字显示逻辑
+    // 核心修改：如果有抓取的对象，或者处于关闭状态，隐藏文字
     if (isClosed || grabbedObject) {
         merryDom.style.transform = "translate(-50%, -50%) scale(0)";
         merryDom.style.opacity = "0";
@@ -178,25 +212,33 @@ function updateVisuals() {
         merryDom.style.opacity = "1";
     }
 
-    // 粒子位置过渡
+    // 粒子过渡
     instancedMesh.userData.particles.forEach((p) => {
         new TWEEN.Tween(p.current).to(isClosed ? p.tree : p.rand, 1000).easing(TWEEN.Easing.Quadratic.Out).start();
     });
 
-    // 照片显隐
-    photosGroup.children.forEach(photo => {
-        const targetOpacity = isClosed ? 0 : (photo === grabbedObject ? 1 : 0.7);
-        new TWEEN.Tween(photo.material).to({ opacity: targetOpacity }, 400).start();
+    // 照片及相框显隐
+    photosGroup.children.forEach(photoGroup => {
+        const targetOpacity = isClosed ? 0 : (photoGroup === grabbedObject ? 1 : 0.7);
+        new TWEEN.Tween(photoGroup.material).to({ opacity: targetOpacity }, 400).start();
+        if(photoGroup.frameMaterial) {
+            new TWEEN.Tween(photoGroup.frameMaterial).to({ opacity: targetOpacity }, 400).start();
+        }
     });
 }
 
 function focusPhoto(photo) {
+    // 隐藏文字的逻辑已在 updateVisuals 中触发
     new TWEEN.Tween(photo.position).to({ x: 0, y: 5, z: 12 }, 500).easing(TWEEN.Easing.Cubic.Out).start();
     new TWEEN.Tween(photo.rotation).to({ x: 0, y: Math.PI * 2, z: 0 }, 500).start();
 }
 
 function releasePhoto(photo) {
-    new TWEEN.Tween(photo.position).to({ x: photo.userData.origPos.x, y: photo.userData.origPos.y, z: photo.userData.origPos.z }, 400).start();
+    new TWEEN.Tween(photo.position).to({ 
+        x: photo.userData.origPos.x, 
+        y: photo.userData.origPos.y, 
+        z: photo.userData.origPos.z 
+    }, 400).start();
     new TWEEN.Tween(photo.rotation).to({ x: 0, y: photo.userData.origRotY, z: 0 }, 400).start();
 }
 
